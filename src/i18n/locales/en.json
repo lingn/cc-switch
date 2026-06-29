@@ -386,7 +386,9 @@
         "mediaFallback": "Unsupported Image Fallback",
         "mediaFallbackDescription": "When a provider does not support image input (it declares text-only capability, or the upstream returns an unsupported-image error), automatically replaces image blocks with an [Unsupported Image] marker so the conversation is not interrupted",
         "mediaHeuristic": "Heuristic Text-Only Model Detection",
-        "mediaHeuristicDescription": "Predictively strips images before sending based on a built-in model-name list. When off, only the declared-text-only and upstream-error fallback paths remain, preventing the built-in list from misclassifying a multimodal model as text-only and silently dropping images"
+        "mediaHeuristicDescription": "Predictively strips images before sending based on a built-in model-name list. When off, only the declared-text-only and upstream-error fallback paths remain, preventing the built-in list from misclassifying a multimodal model as text-only and silently dropping images",
+        "codexImageGenerationToolFilter": "Codex Image Generation Tool Filter",
+        "codexImageGenerationToolFilterDescription": "Before forwarding Codex /v1/responses requests, remove image_generation declarations from tools so relays without image-generation permission do not reject plain text requests"
       },
       "optimizer": {
         "title": "Bedrock Request Optimizer",

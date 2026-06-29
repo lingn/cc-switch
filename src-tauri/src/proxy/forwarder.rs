@@ -1402,6 +1402,14 @@ impl RequestForwarder {
                 }
             }
         }
+        if self.should_filter_codex_image_generation_tool(app_type, endpoint) {
+            let removed = filter_codex_image_generation_tool(&mut filtered_body);
+            if removed > 0 {
+                log::info!(
+                    "[Codex] Filtered {removed} image_generation tool declaration(s) from Responses request"
+                );
+            }
+        }
         // 出站 body 定稿后刷新真值（覆盖 Codex chat 上游模型覆写、转换层模型改写）
         if let Some(m) = filtered_body
             .get("model")
@@ -1986,6 +1994,23 @@ impl RequestForwarder {
                 body: body_text,
             })
         }
+    }
+
+    fn should_filter_codex_image_generation_tool(
+        &self,
+        app_type: &AppType,
+        endpoint: &str,
+    ) -> bool {
+        if !(self.rectifier_config.enabled
+            && self
+                .rectifier_config
+                .request_codex_image_generation_tool_filter)
+        {
+            return false;
+        }
+
+        matches!(app_type, AppType::Codex)
+            && matches!(split_endpoint_and_query(endpoint).0, "/v1/responses")
     }
 
     /// 故障转移开启时，成功不能只看上游响应头。
@@ -2733,6 +2758,16 @@ fn prepare_upstream_request_body(request_body: Value) -> Value {
     canonicalize_value(filter_private_params_with_whitelist(request_body, &[]))
 }
 
+fn filter_codex_image_generation_tool(body: &mut Value) -> usize {
+    let Some(tools) = body.get_mut("tools").and_then(Value::as_array_mut) else {
+        return 0;
+    };
+
+    let before = tools.len();
+    tools.retain(|tool| tool.get("type").and_then(Value::as_str) != Some("image_generation"));
+    before.saturating_sub(tools.len())
+}
+
 fn log_prompt_cache_trace(
     app_type: &AppType,
     provider: &Provider,
@@ -2989,6 +3024,52 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&prepared).unwrap(),
             r#"{"a":2,"tools":[{"name":"lookup","parameters":{"properties":{"_id":{"type":"string"},"a":{"type":"string"},"b":{"type":"number"}},"type":"object"}}],"z":1}"#
+        );
+    }
+
+    #[test]
+    fn filter_codex_image_generation_tool_removes_only_matching_tool_type() {
+        let mut body = json!({
+            "model": "gpt-5.5",
+            "input": "你好",
+            "tools": [
+                {"type": "image_generation"},
+                {"type": "web_search_preview"},
+                {"type": "function", "name": "lookup"}
+            ]
+        });
+
+        let removed = filter_codex_image_generation_tool(&mut body);
+
+        assert_eq!(removed, 1);
+        assert_eq!(
+            body["tools"],
+            json!([
+                {"type": "web_search_preview"},
+                {"type": "function", "name": "lookup"}
+            ])
+        );
+    }
+
+    #[test]
+    fn codex_image_generation_tool_filter_is_scoped_to_codex_responses() {
+        let enabled = forwarder_with_rectifier(RectifierConfig {
+            request_codex_image_generation_tool_filter: true,
+            ..RectifierConfig::default()
+        });
+        let disabled = forwarder_with_rectifier(RectifierConfig::default());
+
+        assert!(enabled.should_filter_codex_image_generation_tool(
+            &AppType::Codex,
+            "/v1/responses?stream=true",
+        ));
+        assert!(!enabled
+            .should_filter_codex_image_generation_tool(&AppType::Codex, "/v1/chat/completions",));
+        assert!(
+            !enabled.should_filter_codex_image_generation_tool(&AppType::Claude, "/v1/responses",)
+        );
+        assert!(
+            !disabled.should_filter_codex_image_generation_tool(&AppType::Codex, "/v1/responses",)
         );
     }
 

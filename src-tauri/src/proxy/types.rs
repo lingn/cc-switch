@@ -226,6 +226,11 @@ pub struct RectifierConfig {
     /// 避免内置列表把多模态模型误判成 text-only 而静默剥图。
     #[serde(default = "default_true")]
     pub request_media_heuristic: bool,
+    /// 请求整流：移除 Codex Responses 中会被部分中转站拒绝的图片生成工具声明（默认关闭）
+    ///
+    /// 只删除顶层 tools 数组里的 {"type":"image_generation"}，不会影响实际图片输入。
+    #[serde(default)]
+    pub request_codex_image_generation_tool_filter: bool,
 }
 
 fn default_true() -> bool {
@@ -244,6 +249,7 @@ impl Default for RectifierConfig {
             request_thinking_budget: true,
             request_media_fallback: true,
             request_media_heuristic: true,
+            request_codex_image_generation_tool_filter: false,
         }
     }
 }
@@ -409,6 +415,10 @@ mod tests {
             config.request_media_heuristic,
             "启发式 text-only 模型识别默认应为 true"
         );
+        assert!(
+            !config.request_codex_image_generation_tool_filter,
+            "Codex image_generation 工具过滤默认应为 false"
+        );
     }
 
     #[test]
@@ -427,6 +437,10 @@ mod tests {
             config.request_media_heuristic,
             "缺 requestMediaHeuristic 时应回退默认值 true"
         );
+        assert!(
+            !config.request_codex_image_generation_tool_filter,
+            "缺 requestCodexImageGenerationToolFilter 时应回退默认值 false"
+        );
     }
 
     #[test]
@@ -438,6 +452,14 @@ mod tests {
         assert!(config.enabled);
         assert!(config.request_thinking_signature);
         assert!(config.request_thinking_budget);
+    }
+
+    #[test]
+    fn test_rectifier_config_serde_codex_image_generation_filter_explicit_true() {
+        let json = r#"{"requestCodexImageGenerationToolFilter": true}"#;
+        let config: RectifierConfig = serde_json::from_str(json).unwrap();
+        assert!(config.request_codex_image_generation_tool_filter);
+        assert!(config.enabled);
     }
 
     #[test]

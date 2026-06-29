@@ -1,0 +1,83 @@
+name: Sync upstream
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 2 * * *"
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream
+        run: |
+          git remote add upstream https://github.com/farion1231/cc-switch.git
+          git fetch upstream main --tags
+
+      - name: Rebase fork main onto upstream main
+        id: rebase
+        shell: bash
+        run: |
+          set +e
+          git checkout main
+          git rebase upstream/main
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            git rebase --abort || true
+            echo "rebase_ok=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "rebase_ok=true" >> "$GITHUB_OUTPUT"
+
+      - name: Push rebased main
+        if: steps.rebase.outputs.rebase_ok == 'true'
+        run: |
+          git push origin main --force-with-lease
+
+      - name: Open conflict issue
+        if: steps.rebase.outputs.rebase_ok != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          title="Upstream sync needs manual rebase"
+          body=$(cat <<'EOF'
+          The scheduled upstream sync could not rebase this fork onto `farion1231/cc-switch:main`.
+
+          Run locally:
+
+          ```bash
+          git fetch upstream main
+          git checkout main
+          git rebase upstream/main
+          # resolve conflicts
+          git push origin main --force-with-lease
+          ```
+
+          After resolving, run the release workflow or build locally.
+          EOF
+          )
+          existing=$(gh issue list --state open --search "$title in:title" --json number --jq '.[0].number // empty')
+          if [ -z "$existing" ]; then
+            gh issue create --title "$title" --body "$body"
+          else
+            gh issue comment "$existing" --body "Still failing on workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          fi
