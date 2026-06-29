@@ -2009,8 +2009,8 @@ impl RequestForwarder {
             return false;
         }
 
-        matches!(app_type, AppType::Codex)
-            && matches!(split_endpoint_and_query(endpoint).0, "/v1/responses")
+        let path = split_endpoint_and_query(endpoint).0;
+        matches!(app_type, AppType::Codex) && matches!(path, "/v1/responses" | "/responses")
     }
 
     /// 故障转移开启时，成功不能只看上游响应头。
@@ -3063,6 +3063,8 @@ mod tests {
             &AppType::Codex,
             "/v1/responses?stream=true",
         ));
+        assert!(enabled
+            .should_filter_codex_image_generation_tool(&AppType::Codex, "/responses?stream=true",));
         assert!(!enabled
             .should_filter_codex_image_generation_tool(&AppType::Codex, "/v1/chat/completions",));
         assert!(
